@@ -712,6 +712,15 @@ def _dispatch_event_payload(frame: dict[str, Any]) -> list[dict[str, Any]]:
             if content:
                 events.append({"type": "text", "delta": str(content)})
                 text_emitted = True
+        elif event_type == "reasoningContentEvent":
+            # Extended thinking / reasoning from the model.
+            text = payload.get("text")
+            signature = payload.get("signature")
+            if text:
+                events.append({"type": "reasoning", "delta": str(text)})
+            if signature:
+                events.append({"type": "reasoning_signature", "signature": str(signature)})
+            return events
         elif event_type == "toolUseEvent":
             # Tool call from model — this IS the tool payload directly.
             events.append({"type": "tool_delta", "tool": payload})
@@ -746,6 +755,12 @@ def _dispatch_event_payload(frame: dict[str, Any]) -> list[dict[str, Any]]:
 
         if payload.get("toolUseEvent"):
             events.append({"type": "tool_delta", "tool": payload["toolUseEvent"]})
+        if payload.get("reasoningContentEvent"):
+            rc = payload["reasoningContentEvent"]
+            if rc.get("text"):
+                events.append({"type": "reasoning", "delta": str(rc["text"])})
+            if rc.get("signature"):
+                events.append({"type": "reasoning_signature", "signature": str(rc["signature"])})
         if payload.get("errorMessage") or payload.get("error"):
             events.append({"type": "error", "error": payload})
 
@@ -915,7 +930,7 @@ class EventStreamParser:
 # ------------------------------------------------------------------
 
 def openai_chat_chunk(model: str, delta_text: str = "", tool_call: dict[str, Any] | None = None,
-                     finish_reason: str | None = None) -> str:
+                     finish_reason: str | None = None, reasoning_delta: str = "") -> str:
     payload: dict[str, Any] = {
         "id": f"chatcmpl-{uuid.uuid4().hex}",
         "object": "chat.completion.chunk",
@@ -931,6 +946,8 @@ def openai_chat_chunk(model: str, delta_text: str = "", tool_call: dict[str, Any
     }
     if delta_text:
         payload["choices"][0]["delta"]["content"] = delta_text
+    if reasoning_delta:
+        payload["choices"][0]["delta"]["reasoning_content"] = reasoning_delta
     if tool_call:
         payload["choices"][0]["delta"]["tool_calls"] = [tool_call]
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -943,13 +960,16 @@ def openai_chat_done() -> str:
 def openai_final_response(model: str, full_text: str,
                           tool_calls: list[dict[str, Any]] | None = None,
                           prompt_tokens: int = 0,
-                          completion_tokens: int = 0) -> dict[str, Any]:
+                          completion_tokens: int = 0,
+                          reasoning_content: str = "") -> dict[str, Any]:
     message_content: str | None = full_text if full_text or not tool_calls else None
     choice: dict[str, Any] = {
         "index": 0,
         "message": {"role": "assistant", "content": message_content},
         "finish_reason": "tool_calls" if tool_calls else "stop",
     }
+    if reasoning_content:
+        choice["message"]["reasoning_content"] = reasoning_content
     if tool_calls:
         choice["message"]["tool_calls"] = tool_calls
     return {
@@ -1009,6 +1029,38 @@ def anthropic_tool_block_delta(index: int, partial_json: str) -> str:
         "delta": {"type": "input_json_delta", "partial_json": partial_json},
     }
     return f"event: content_block_delta\ndata: {json.dumps(payload)}\n\n"
+
+
+def anthropic_thinking_block_start(index: int) -> str:
+    payload = {
+        "type": "content_block_start",
+        "index": index,
+        "content_block": {"type": "thinking", "thinking": ""},
+    }
+    return f"event: content_block_start\ndata: {json.dumps(payload)}\n\n"
+
+
+def anthropic_thinking_block_delta(index: int, thinking: str) -> str:
+    payload = {
+        "type": "content_block_delta",
+        "index": index,
+        "delta": {"type": "thinking_delta", "thinking": thinking},
+    }
+    return f"event: content_block_delta\ndata: {json.dumps(payload)}\n\n"
+
+
+def anthropic_thinking_block_stop(index: int, signature: str = "") -> str:
+    # Emit signature delta if present, then stop the block.
+    parts = ""
+    if signature:
+        sig_payload = {
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {"type": "signature_delta", "signature": signature},
+        }
+        parts += f"event: content_block_delta\ndata: {json.dumps(sig_payload)}\n\n"
+    parts += f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': index})}\n\n"
+    return parts
 
 
 def anthropic_block_stop(index: int) -> str:

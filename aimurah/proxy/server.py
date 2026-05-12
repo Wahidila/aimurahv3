@@ -449,6 +449,7 @@ async def chat_completions(
 async def _stream_openai_chat(account, payload, model, log, events):
     start = time.monotonic()
     full_text: list[str] = []
+    reasoning_text: list[str] = []
     tool_calls_accum: list[dict[str, Any]] = []
     # Buffer for accumulating streaming tool call fragments
     pending_tool: dict[str, Any] | None = None  # {id, name, arguments_parts: []}
@@ -541,6 +542,15 @@ async def _stream_openai_chat(account, payload, model, log, events):
                     has_content = True
                     tool_calls_accum.append(flushed)
                     yield client.openai_chat_chunk(model["id"], tool_call=flushed)
+            elif event["type"] == "reasoning":
+                delta = event.get("delta") or ""
+                if delta:
+                    reasoning_text.append(delta)
+                    has_content = True
+                    yield client.openai_chat_chunk(model["id"], reasoning_delta=delta)
+            elif event["type"] == "reasoning_signature":
+                # Signature marks end of reasoning block — no content to emit
+                pass
             elif event["type"] == "done":
                 chunk = _flush_pending_tool()
                 if chunk:
@@ -603,6 +613,7 @@ async def _stream_openai_chat(account, payload, model, log, events):
 async def _nonstream_openai_chat(account, payload, model, log, events):
     start = time.monotonic()
     full_text: list[str] = []
+    reasoning_text: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     pending_tool: dict[str, Any] | None = None
     try:
@@ -612,6 +623,10 @@ async def _nonstream_openai_chat(account, payload, model, log, events):
                 if tool_call:
                     tool_calls.append(tool_call)
                 full_text.append(event.get("delta") or "")
+            elif event["type"] == "reasoning":
+                reasoning_text.append(event.get("delta") or "")
+            elif event["type"] == "reasoning_signature":
+                pass
             elif event["type"] == "tool_use":
                 tu = event.get("tool") or {}
                 flushed, pending_tool = _flush_pending_openai_tool(pending_tool, len(tool_calls))
@@ -640,15 +655,17 @@ async def _nonstream_openai_chat(account, payload, model, log, events):
         raise HTTPException(status_code=exc.status, detail=exc.body[:500])
 
     text = "".join(full_text)
+    reasoning = "".join(reasoning_text)
     tool_args_text = "".join(
         (tc.get("function") or {}).get("arguments") or ""
         for tc in tool_calls
     )
     prompt_tokens = client.estimate_tokens(json.dumps(payload))
-    completion_tokens = client.estimate_tokens(text + tool_args_text)
+    completion_tokens = client.estimate_tokens(text + tool_args_text + reasoning)
     response = client.openai_final_response(
         model["id"], text, tool_calls=tool_calls or None,
         prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+        reasoning_content=reasoning,
     )
     pool.handle_success(account["id"])
     storage.add_usage_log(
@@ -827,6 +844,21 @@ async def _stream_anthropic(account, payload, model, log, events):
                     if arguments and arguments != "{}":
                         yield client.anthropic_tool_block_delta(block_index, arguments)
                     yield client.anthropic_block_stop(block_index)
+            elif event["type"] == "reasoning":
+                delta = event.get("delta") or ""
+                if delta:
+                    # Anthropic thinking block: open a thinking content_block if not yet open
+                    if not hasattr(_flush_pending_tool, '_thinking_block_index'):
+                        _flush_pending_tool._thinking_block_index = next_block_index
+                        next_block_index += 1
+                        yield client.anthropic_thinking_block_start(_flush_pending_tool._thinking_block_index)
+                    yield client.anthropic_thinking_block_delta(_flush_pending_tool._thinking_block_index, delta)
+            elif event["type"] == "reasoning_signature":
+                # Close thinking block
+                if hasattr(_flush_pending_tool, '_thinking_block_index'):
+                    sig = event.get("signature") or ""
+                    yield client.anthropic_thinking_block_stop(_flush_pending_tool._thinking_block_index, sig)
+                    del _flush_pending_tool._thinking_block_index
             elif event["type"] == "done":
                 for chunk in _flush_pending_tool():
                     yield chunk
@@ -877,6 +909,7 @@ async def _stream_anthropic(account, payload, model, log, events):
 async def _nonstream_anthropic(account, payload, model, log, events):
     start = time.monotonic()
     full_text: list[str] = []
+    reasoning_text: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     pending_tool: dict[str, Any] | None = None
     try:
@@ -886,6 +919,10 @@ async def _nonstream_anthropic(account, payload, model, log, events):
                 if tool_call:
                     tool_calls.append(tool_call)
                 full_text.append(event.get("delta") or "")
+            elif event["type"] == "reasoning":
+                reasoning_text.append(event.get("delta") or "")
+            elif event["type"] == "reasoning_signature":
+                pass
             elif event["type"] == "tool_use":
                 flushed, pending_tool = _flush_pending_openai_tool(pending_tool, len(tool_calls))
                 if flushed:
@@ -912,8 +949,9 @@ async def _nonstream_anthropic(account, payload, model, log, events):
         raise HTTPException(status_code=exc.status, detail=exc.body[:500])
 
     text = "".join(full_text)
+    reasoning = "".join(reasoning_text)
     prompt_tokens = client.estimate_tokens(json.dumps(payload))
-    completion_tokens = client.estimate_tokens(text)
+    completion_tokens = client.estimate_tokens(text + reasoning)
     pool.handle_success(account["id"])
     storage.add_usage_log(
         account_id=account["id"], model=model["id"],
@@ -926,12 +964,17 @@ async def _nonstream_anthropic(account, payload, model, log, events):
     log.update({"status_code": 200, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "latency_ms": int((time.monotonic() - start) * 1000)})
     log_request(log)
     stop_reason = "tool_use" if tool_calls else "end_turn"
+    # Build content blocks with optional thinking
+    content_blocks: list[dict[str, Any]] = []
+    if reasoning:
+        content_blocks.append({"type": "thinking", "thinking": reasoning})
+    content_blocks.extend(_anthropic_content_from_openai_tool_calls(text, tool_calls))
     return JSONResponse({
         "id": f"msg_{_uuid.uuid4().hex[:24]}",
         "type": "message",
         "role": "assistant",
         "model": model["id"],
-        "content": _anthropic_content_from_openai_tool_calls(text, tool_calls),
+        "content": content_blocks,
         "stop_reason": stop_reason,
         "usage": {"input_tokens": prompt_tokens, "output_tokens": completion_tokens},
     })
