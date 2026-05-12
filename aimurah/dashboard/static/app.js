@@ -287,7 +287,7 @@ async function loadRequestLogs() {
             tbody.innerHTML = '<tr><td colspan="9" class="muted">No request logs yet.</td></tr>';
             return;
         }
-        tbody.innerHTML = logs.map(r => {
+        tbody.innerHTML = logs.map((r, idx) => {
             const time = r.timestamp ? new Date(r.timestamp).toLocaleTimeString() : '—';
             const model = r.model || '—';
             const account = r.account_email ? r.account_email.split('@')[0] : '—';
@@ -300,7 +300,16 @@ async function loadRequestLogs() {
             const inputPrev = r.input_preview ? `<span title="${r.input_preview.replace(/"/g,'&quot;')}">${r.input_preview.substring(0,40)}${r.input_preview.length > 40 ? '…' : ''}</span>` : '—';
             const outputPrev = r.output_preview ? `<span title="${r.output_preview.replace(/"/g,'&quot;')}">${r.output_preview.substring(0,40)}${r.output_preview.length > 40 ? '…' : ''}</span>` : '—';
             const error = r.error ? `<br><span class="muted" style="font-size:10px">${r.error.substring(0,60)}</span>` : '';
-            return `<tr>
+
+            // Detail row (hidden by default)
+            const fullTime = r.timestamp ? new Date(r.timestamp).toLocaleString() : '—';
+            const rtkDetail = r.rtk ? `Saved ${r.rtk.saved_bytes}B / ${r.rtk.bytes_before}B (${r.rtk.saved_pct}%) — types: ${Object.keys(r.rtk.hits||{}).join(', ')||'none'}` : 'disabled or no compression';
+            const inputFull = r.input_preview || '—';
+            const outputFull = r.output_preview || '—';
+            const errorFull = r.error || '—';
+            const upstream = r.upstream || r.model || '—';
+
+            return `<tr class="log-row" data-detail="detail-${idx}" style="cursor:pointer">
                 <td class="muted">${time}</td>
                 <td class="mono">${model}</td>
                 <td class="muted">${account}</td>
@@ -310,10 +319,47 @@ async function loadRequestLogs() {
                 <td class="muted" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${inputPrev}</td>
                 <td class="muted" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${outputPrev}</td>
                 <td class="muted">${rtk}</td>
+            </tr>
+            <tr class="log-detail" id="detail-${idx}" style="display:none">
+                <td colspan="9" style="padding:12px 16px; background:var(--bg-secondary,#1a1a2e); border-left:3px solid var(--accent,#4a9eff)">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; font-size:12px">
+                        <div>
+                            <strong>Timestamp:</strong> ${fullTime}<br>
+                            <strong>Model:</strong> ${model} → <span class="mono">${upstream}</span><br>
+                            <strong>Account:</strong> ${r.account_email || '—'}<br>
+                            <strong>Status:</strong> ${status}<br>
+                            <strong>Latency:</strong> ${latency}<br>
+                            <strong>Tokens:</strong> prompt=${fmtNum(prompt)} completion=${fmtNum(tokens)} total=${fmtNum(prompt+tokens)}
+                        </div>
+                        <div>
+                            <strong>RTK:</strong> ${rtkDetail}<br>
+                            <strong>Error:</strong> ${errorFull}
+                        </div>
+                    </div>
+                    <div style="margin-top:10px; font-size:12px">
+                        <strong>Input:</strong><br>
+                        <pre style="margin:4px 0;padding:8px;background:var(--bg-primary,#0d0d1a);border-radius:4px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow-y:auto">${inputFull}</pre>
+                    </div>
+                    <div style="margin-top:8px; font-size:12px">
+                        <strong>Output:</strong><br>
+                        <pre style="margin:4px 0;padding:8px;background:var(--bg-primary,#0d0d1a);border-radius:4px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow-y:auto">${outputFull}</pre>
+                    </div>
+                </td>
             </tr>`;
         }).join('');
+
+        // Click handler for expandable rows
+        tbody.querySelectorAll('.log-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const detailId = row.dataset.detail;
+                const detail = document.getElementById(detailId);
+                if (detail) {
+                    detail.style.display = detail.style.display === 'none' ? 'table-row' : 'none';
+                }
+            });
+        });
     } catch (e) {
-        document.getElementById('request-logs-table').innerHTML = `<tr><td colspan="7" class="muted">Error: ${e.message}</td></tr>`;
+        document.getElementById('request-logs-table').innerHTML = `<tr><td colspan="9" class="muted">Error: ${e.message}</td></tr>`;
     }
 }
 
