@@ -247,6 +247,29 @@ async def api_dashboard(request: Request):
 
 # ------------------- Accounts -------------------
 
+@app.get("/api/accounts/export")
+async def api_accounts_export(request: Request):
+    require_auth(request)
+    accounts = storage.list_accounts()
+    export = []
+    for a in accounts:
+        export.append({
+            "id": a["id"],
+            "email": a.get("email"),
+            "provider": a.get("provider"),
+            "status": a.get("status"),
+            "plan_type": a.get("plan_type"),
+            "credit_limit": a.get("credit_limit"),
+            "remaining_credits": a.get("remaining_credits"),
+            "auth_method": a.get("auth_method"),
+            "refresh_token": a.get("refresh_token"),
+            "profile_arn": a.get("profile_arn"),
+            "created_at": a.get("created_at"),
+            "last_usage_sync_at": a.get("last_usage_sync_at"),
+        })
+    return {"accounts": export}
+
+
 @app.get("/api/accounts")
 async def api_accounts(request: Request):
     require_auth(request)

@@ -130,6 +130,40 @@ document.getElementById('accounts-table').addEventListener('click', async (e) =>
 
 document.getElementById('refresh-accounts-btn').addEventListener('click', loadAccounts);
 
+// Export accounts to .txt
+document.getElementById('export-accounts-btn').addEventListener('click', async () => {
+    try {
+        const {accounts} = await api('/api/accounts/export');
+        let txt = 'AIMurahV3 — Kiro Accounts Export\n';
+        txt += 'Exported: ' + new Date().toLocaleString() + '\n';
+        txt += '='.repeat(60) + '\n\n';
+        accounts.forEach((a, i) => {
+            txt += `[${i+1}] ${a.email || 'unknown'}\n`;
+            txt += `    ID:             ${a.id}\n`;
+            txt += `    Plan:           ${a.plan_type || 'free'}\n`;
+            txt += `    Status:         ${a.status || 'unknown'}\n`;
+            txt += `    Credits:        ${a.remaining_credits || 0} / ${a.credit_limit || 0}\n`;
+            txt += `    Auth method:    ${a.auth_method || '-'}\n`;
+            txt += `    Refresh token:  ${a.refresh_token || '-'}\n`;
+            txt += `    Profile ARN:    ${a.profile_arn || '-'}\n`;
+            txt += `    Created:        ${a.created_at ? new Date(a.created_at * 1000).toLocaleString() : '-'}\n`;
+            txt += `    Last sync:      ${a.last_usage_sync_at ? new Date(a.last_usage_sync_at * 1000).toLocaleString() : '-'}\n`;
+            txt += '\n';
+        });
+        // Download as file
+        const blob = new Blob([txt], {type: 'text/plain'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `aimurahv3-accounts-${new Date().toISOString().slice(0,10)}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast('Exported ' + accounts.length + ' accounts', 'success');
+    } catch (e) {
+        toast('Export failed: ' + e.message, 'error');
+    }
+});
+
 // ---------- Add account modal ----------
 let currentOAuthSession = null;
 const addModal = document.getElementById('add-account-modal');
