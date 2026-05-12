@@ -284,7 +284,7 @@ async function loadRequestLogs() {
         document.getElementById('logs-count').textContent = `${logs.length} recent requests`;
         const tbody = document.getElementById('request-logs-table');
         if (!logs.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="muted">No request logs yet.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="muted">No request logs yet.</td></tr>';
             return;
         }
         tbody.innerHTML = logs.map(r => {
@@ -297,6 +297,8 @@ async function loadRequestLogs() {
             const prompt = r.prompt_tokens || 0;
             const latency = r.latency_ms ? (r.latency_ms >= 1000 ? (r.latency_ms / 1000).toFixed(1) + 's' : r.latency_ms + 'ms') : '—';
             const rtk = r.rtk ? `${Math.round(r.rtk.saved_bytes/1024)}KB` : '—';
+            const inputPrev = r.input_preview ? `<span title="${r.input_preview.replace(/"/g,'&quot;')}">${r.input_preview.substring(0,40)}${r.input_preview.length > 40 ? '…' : ''}</span>` : '—';
+            const outputPrev = r.output_preview ? `<span title="${r.output_preview.replace(/"/g,'&quot;')}">${r.output_preview.substring(0,40)}${r.output_preview.length > 40 ? '…' : ''}</span>` : '—';
             const error = r.error ? `<br><span class="muted" style="font-size:10px">${r.error.substring(0,60)}</span>` : '';
             return `<tr>
                 <td class="muted">${time}</td>
@@ -305,6 +307,8 @@ async function loadRequestLogs() {
                 <td><span class="badge ${statusClass}">${status}</span>${error}</td>
                 <td>${fmtNum(prompt)}/${fmtNum(tokens)}</td>
                 <td class="muted">${latency}</td>
+                <td class="muted" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${inputPrev}</td>
+                <td class="muted" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${outputPrev}</td>
                 <td class="muted">${rtk}</td>
             </tr>`;
         }).join('');

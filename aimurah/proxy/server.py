@@ -93,6 +93,19 @@ async def _resolve_model(model_name: str) -> dict[str, Any]:
 
 
 def _make_log_entry(body: dict[str, Any], model: dict[str, Any]) -> dict[str, Any]:
+    # Extract input preview from last user message
+    input_preview = ""
+    for m in reversed(body.get("messages") or []):
+        if m.get("role") == "user":
+            content = m.get("content")
+            if isinstance(content, str):
+                input_preview = content[:120]
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        input_preview = (block.get("text") or "")[:120]
+                        break
+            break
     return {
         "id": f"req-{int(time.time()*1000)}",
         "model": model.get("id"),
@@ -100,6 +113,7 @@ def _make_log_entry(body: dict[str, Any], model: dict[str, Any]) -> dict[str, An
         "upstream": model.get("upstream_id") or model["id"],
         "status_code": 0,
         "started_at": time.time(),
+        "input_preview": input_preview,
     }
 
 
@@ -592,7 +606,7 @@ async def _stream_openai_chat(account, payload, model, log, events):
             latency_ms=int((time.monotonic() - start) * 1000),
             **_rtk_kwargs(log),
         )
-        log.update({"status_code": 200, "prompt_tokens": prompt_tokens, "completion_tokens": completion, "latency_ms": int((time.monotonic() - start) * 1000)})
+        log.update({"status_code": 200, "prompt_tokens": prompt_tokens, "completion_tokens": completion, "latency_ms": int((time.monotonic() - start) * 1000), "output_preview": "".join(full_text)[:120]})
         log_request(log)
     except client.KiroUpstreamError as exc:
         pool.handle_upstream_failure(account["id"], status=exc.status, body=exc.body, model_id=model["id"])
@@ -678,7 +692,7 @@ async def _nonstream_openai_chat(account, payload, model, log, events):
         latency_ms=int((time.monotonic() - start) * 1000),
         **_rtk_kwargs(log),
     )
-    log.update({"status_code": 200, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "latency_ms": int((time.monotonic() - start) * 1000)})
+    log.update({"status_code": 200, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "latency_ms": int((time.monotonic() - start) * 1000), "output_preview": text[:120]})
     log_request(log)
     return JSONResponse(response)
 
@@ -888,7 +902,7 @@ async def _stream_anthropic(account, payload, model, log, events):
             latency_ms=int((time.monotonic() - start) * 1000),
             **_rtk_kwargs(log),
         )
-        log.update({"status_code": 200, "prompt_tokens": prompt_tokens, "completion_tokens": completion, "latency_ms": int((time.monotonic() - start) * 1000)})
+        log.update({"status_code": 200, "prompt_tokens": prompt_tokens, "completion_tokens": completion, "latency_ms": int((time.monotonic() - start) * 1000), "output_preview": "".join(full_text)[:120]})
         log_request(log)
     except client.KiroUpstreamError as exc:
         pool.handle_upstream_failure(account["id"], status=exc.status, body=exc.body, model_id=model["id"])
@@ -961,7 +975,7 @@ async def _nonstream_anthropic(account, payload, model, log, events):
         latency_ms=int((time.monotonic() - start) * 1000),
         **_rtk_kwargs(log),
     )
-    log.update({"status_code": 200, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "latency_ms": int((time.monotonic() - start) * 1000)})
+    log.update({"status_code": 200, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "latency_ms": int((time.monotonic() - start) * 1000), "output_preview": text[:120]})
     log_request(log)
     stop_reason = "tool_use" if tool_calls else "end_turn"
     # Build content blocks with optional thinking
