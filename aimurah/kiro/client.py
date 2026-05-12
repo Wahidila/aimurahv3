@@ -250,9 +250,32 @@ def build_kiro_request(
             break
     else:
         # No plain user message found. This happens when the conversation
-        # ends with assistant+toolUses → user+toolResults (agent loop).
-        # Create a minimal "continue" message so upstream has something.
-        current_message = {"userInputMessage": {"content": "continue", "modelId": model_upstream_id, "origin": "AI_EDITOR"}}
+        # is purely tool cycles (agent loop). Pop the last tool-result turn,
+        # strip toolResults from it (move to a preceding position in history),
+        # and use the stripped message as currentMessage.
+        for idx in range(len(history) - 1, -1, -1):
+            if "userInputMessage" in history[idx]:
+                popped = history.pop(idx)
+                uim = popped["userInputMessage"]
+                ctx = uim.get("userInputMessageContext") or {}
+                # Extract tool results content as summary for the current message
+                tool_results_summary = []
+                for tr in ctx.get("toolResults", []):
+                    content_parts = tr.get("content") or []
+                    for part in content_parts:
+                        if isinstance(part, dict) and part.get("text"):
+                            tool_results_summary.append(str(part["text"])[:200])
+                # Strip toolResults from context
+                ctx.pop("toolResults", None)
+                if not ctx:
+                    uim.pop("userInputMessageContext", None)
+                # Set content to summary of tool results so model has context
+                summary = "\n".join(tool_results_summary)[:500] if tool_results_summary else "continue"
+                uim["content"] = f"Tool results received:\n{summary}\n\nPlease continue with the task."
+                current_message = popped
+                break
+        else:
+            current_message = {"userInputMessage": {"content": "continue", "modelId": model_upstream_id, "origin": "AI_EDITOR"}}
 
     cur_uim = current_message["userInputMessage"]
     cur_uim["modelId"] = model_upstream_id
