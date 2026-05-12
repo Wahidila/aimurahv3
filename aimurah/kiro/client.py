@@ -270,7 +270,7 @@ def build_kiro_request(
 
     # Fold system prompt into the current turn's context.
     # Trim if too long — Kiro upstream rejects large payloads with tools.
-    MAX_SYSTEM_PROMPT_CHARS = 4_000
+    MAX_SYSTEM_PROMPT_CHARS = 8_000
     if system_prompt:
         if len(system_prompt) > MAX_SYSTEM_PROMPT_CHARS:
             system_prompt = system_prompt[:MAX_SYSTEM_PROMPT_CHARS] + "\n\n[system prompt truncated for upstream compatibility]"
