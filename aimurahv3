@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# AIMurahV3 launcher (POSIX shells).
+set -e
+DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+export PYTHONPATH="$DIR:${PYTHONPATH:-}"
+if command -v python >/dev/null 2>&1; then
+    PYCMD=python
+elif command -v python3 >/dev/null 2>&1; then
+    PYCMD=python3
+else
+    echo "python interpreter not found" >&2
+    exit 1
+fi
+exec "$PYCMD" -m aimurah "$@"

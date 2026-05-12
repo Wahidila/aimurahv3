@@ -1,0 +1,36 @@
+[Unit]
+Description=AIMurahV3 — Kiro proxy gateway
+Documentation=https://github.com/local/aimurahv3
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aimurah
+Group=aimurah
+
+# Adjust these paths for your VPS layout.
+WorkingDirectory=/opt/aimurahv3
+EnvironmentFile=/etc/aimurahv3/aimurahv3.env
+ExecStart=/opt/aimurahv3/.venv/bin/python -m aimurah start --foreground
+
+# Graceful shutdown: daemon handles SIGTERM and drains in-flight streams.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5s
+
+# Sandboxing — sane defaults for a read-only app with a single writable
+# data dir. Loosen if you see systemd-sandbox errors.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/aimurahv3
+
+# Standard streams go to the journal.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AIMurahV3 Dashboard</title>
+    <link rel="stylesheet" href="/static/app.css?v=3.0.1" />
+</head>
+<body>
+<div class="topbar">
+    <div class="brand">
+        <div class="logo"></div>
+        <h1>AIMurahV3</h1>
+        <span>Kiro Pro proxy</span>
+    </div>
+    <div class="row">
+        <span class="pill" id="proxy-status">proxy</span>
+        <span class="pill" id="dash-status">dashboard</span>
+        <button class="btn" id="logout-btn">Sign out</button>
+    </div>
+</div>
+
+<div class="layout">
+    <aside class="sidebar">
+        <nav>
+            <button data-view="overview" class="active">Overview</button>
+            <button data-view="accounts">Accounts</button>
+            <button data-view="models">Models</button>
+            <button data-view="usage">Usage</button>
+            <button data-view="settings">Settings</button>
+        </nav>
+    </aside>
+
+    <main class="main">
+        <!-- Overview -->
+        <section id="view-overview">
+            <h2>Overview</h2>
+            <div class="card">
+                <h3>Account pool</h3>
+                <div class="grid" id="stats"></div>
+            </div>
+            <div class="card">
+                <h3>Proxy endpoints</h3>
+                <table>
+                    <tr><td class="mono">POST /v1/chat/completions</td><td class="muted">OpenAI-compatible</td></tr>
+                    <tr><td class="mono">POST /v1/messages</td><td class="muted">Anthropic-compatible</td></tr>
+                    <tr><td class="mono">GET /v1/models</td><td class="muted">List available models</td></tr>
+                </table>
+                <p class="muted" style="margin-top:10px">Base URL: <code class="mono" id="base-url"></code></p>
+                <p class="muted">API key: <code class="mono" id="api-key">...</code>
+                    <button class="btn" id="regen-key-btn" style="margin-left:8px">Regenerate</button></p>
+            </div>
+        </section>
+
+        <!-- Accounts -->
+        <section id="view-accounts" style="display:none">
+            <h2>Kiro accounts</h2>
+            <div class="card">
+                <div class="row" style="margin-bottom:12px">
+                    <button class="btn primary" id="add-account-btn">Add Kiro account</button>
+                    <button class="btn" id="refresh-accounts-btn">Refresh</button>
+                    <span class="spacer"></span>
+                    <span class="muted" id="accounts-count"></span>
+                </div>
+                <table>
+                    <thead><tr>
+                        <th>Email</th><th>Plan</th><th>Status</th>
+                        <th>Credits</th><th>Last sync</th><th>Added</th><th></th>
+                    </tr></thead>
+                    <tbody id="accounts-table"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Models -->
+        <section id="view-models" style="display:none">
+            <h2>Model catalog</h2>
+            <div class="card">
+                <div class="row" style="margin-bottom:12px">
+                    <button class="btn primary" id="refresh-models-btn">Refresh Pro catalog</button>
+                    <span class="spacer"></span>
+                    <span class="muted" id="models-count"></span>
+                </div>
+                <table>
+                    <thead><tr>
+                        <th>Model</th><th>Owner</th><th>Tier</th>
+                        <th>Context</th><th>Output</th>
+                    </tr></thead>
+                    <tbody id="models-table"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Usage -->
+        <section id="view-usage" style="display:none">
+            <h2>Usage</h2>
+            <div class="card">
+                <h3>Token Saver summary</h3>
+                <div class="grid" id="rtk-stats"></div>
+            </div>
+            <div class="card">
+                <h3>By model</h3>
+                <table>
+                    <thead><tr><th>Model</th><th>Requests</th><th>Prompt</th><th>Completion</th><th>Total</th><th>RTK saved</th></tr></thead>
+                    <tbody id="usage-by-model"></tbody>
+                </table>
+            </div>
+            <div class="card">
+                <h3>Daily</h3>
+                <table>
+                    <thead><tr><th>Date</th><th>Requests</th><th>Total tokens</th><th>RTK saved (tokens)</th><th>RTK saved (bytes)</th></tr></thead>
+                    <tbody id="usage-daily"></tbody>
+                </table>
+            </div>
+            <div class="card">
+                <h3>Request logs</h3>
+                <div class="row" style="margin-bottom:10px">
+                    <button class="btn" id="refresh-logs-btn">Refresh</button>
+                    <span class="muted" id="logs-count"></span>
+                </div>
+                <div style="max-height:400px; overflow:auto">
+                    <table>
+                        <thead><tr><th>Time</th><th>Model</th><th>Account</th><th>Status</th><th>Tokens</th><th>Latency</th><th>RTK</th></tr></thead>
+                        <tbody id="request-logs-table"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Settings -->
+        <section id="view-settings" style="display:none">
+            <h2>Settings</h2>
+            <div class="card">
+                <label><span>Token Saver (RTK compression)</span>
+                    <select id="s-token-saver">
+                        <option value="true">Enabled — compress tool output before upstream</option>
+                        <option value="false">Disabled</option>
+                    </select>
+                </label>
+                <p class="muted" style="margin-top:-6px; margin-bottom:12px">Auto-compress git diff / status / grep / find / ls / tree / logs in tool_result before sending to LLM. Check server logs for <code>[RTK] saved ...</code> entries.</p>
+                <label><span>OAuth engine</span>
+                    <select id="s-oauth-engine">
+                        <option value="manual">Manual (paste callback URL)</option>
+                        <option value="camoufox">Camoufox (automated)</option>
+                    </select>
+                </label>
+                <label><span>OAuth headless</span>
+                    <select id="s-oauth-headless">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                </label>
+                <label><span>Sticky round-robin limit</span>
+                    <input id="s-sticky-limit" type="number" min="1" max="20" />
+                </label>
+                <label><span>Usage poll interval (minutes)</span>
+                    <input id="s-usage-poll" type="number" min="1" />
+                </label>
+                <label><span>Token auto-refresh (minutes)</span>
+                    <input id="s-refresh" type="number" min="1" />
+                </label>
+                <label><span>Outbound proxy URL (for Kiro auth/upstream)</span>
+                    <input id="s-proxy-url" placeholder="http://user:pass@host:port" />
+                </label>
+                <button class="btn primary" id="save-settings-btn">Save settings</button>
+            </div>
+            <div class="card">
+                <h3>Change dashboard password</h3>
+                <label><span>Current password</span><input id="cp-current" type="password" /></label>
+                <label><span>New password</span><input id="cp-new" type="password" /></label>
+                <button class="btn" id="change-password-btn">Change password</button>
+            </div>
+        </section>
+    </main>
+</div>
+
+<!-- Add account modal -->
+<div id="add-account-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); align-items:center; justify-content:center; z-index:50">
+    <div class="card" style="width:560px; max-width:95vw; margin:0; max-height:92vh; overflow:auto">
+        <h3>Add Kiro account</h3>
+
+        <div class="row" style="margin-bottom:14px; gap:6px">
+            <button class="btn" id="tab-import-btn">Import refresh token (recommended)</button>
+            <button class="btn" id="tab-oauth-btn">OAuth flow</button>
+        </div>
+
+        <!-- Import refresh token tab (primary path) -->
+        <div id="tab-import">
+            <p class="muted">Paste the refresh token from your Kiro IDE. Tokens from a real IDE session keep upstream from flagging the account as a bot, which is why this path is far more stable than browser OAuth.</p>
+            <p class="muted" style="font-size:11px">Grab it from Kiro IDE's <code>auth.json</code> under <code>~/.aws/sso/cache</code>, the IDE's DevTools, or the <code>Session:Export</code> command. Refresh tokens usually start with <code>aorAAAAAG</code>.</p>
+            <label><span>Kiro IDE refresh token</span>
+                <textarea id="rt-token" rows="4" placeholder="aorAAAAAG..." spellcheck="false"></textarea>
+            </label>
+            <div class="row">
+                <button class="btn primary" id="submit-rt-btn">Add account</button>
+                <button class="btn" id="cancel-import-btn">Cancel</button>
+                <span class="muted" id="import-message"></span>
+            </div>
+        </div>
+
+        <!-- OAuth tab (fallback) -->
+        <div id="tab-oauth" style="display:none">
+            <p class="muted">Fallback flow. Open the Kiro login URL, sign in, then paste the <code>kiro://...?code=...</code> URL the browser fails to redirect to.</p>
+            <label><span>Authorize URL</span>
+                <a id="auth-url-link" class="mono" target="_blank" rel="noopener">(open)</a>
+            </label>
+            <label><span>Paste the <code class="mono">kiro://...?code=...</code> URL</span>
+                <textarea id="callback-url" rows="3" placeholder="kiro://kiro.kiroAgent/authenticate-success?code=..."></textarea>
+            </label>
+            <div class="row">
+                <button class="btn primary" id="submit-callback-btn">Add account</button>
+                <button class="btn" id="cancel-oauth-btn">Cancel</button>
+                <span class="muted" id="oauth-message"></span>
+            </div>
+        </div>
+    </div>
+</div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/app.js?v=3.0.2"></script>
+</body>
+</html>

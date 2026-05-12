@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+
+# Virtualenv
+.venv/
+venv/
+env/
+ENV/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Runtime state (kept outside repo)
+.aimurahv3/
+aimurahv3.log
+aimurahv3.log.prev
+request_logs.jsonl
+store.db
+store.db-wal
+store.db-shm
+aimurahv3.pid
+last_failed_payload.json
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local test output
+tests/__pycache__/
+*.cover
+.coverage
+htmlcov/

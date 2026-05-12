@@ -1,0 +1,11 @@
+# Keep launcher scripts LF so bash can exec them on Linux VPS even when
+# the repo is authored or edited on Windows.
+* text=auto
+
+aimurahv3 text eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.service text eol=lf
+
+*.png binary
+*.ico binary

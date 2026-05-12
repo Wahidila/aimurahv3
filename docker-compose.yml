@@ -1,0 +1,28 @@
+services:
+  aimurahv3:
+    build: .
+    image: aimurahv3:latest
+    container_name: aimurahv3
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Inside the container we bind to 0.0.0.0 and publish only to 127.0.0.1
+    # on the host; put nginx/caddy in front for TLS.
+    environment:
+      AIMURAH_PROXY_HOST: "0.0.0.0"
+      AIMURAH_DASHBOARD_HOST: "0.0.0.0"
+      AIMURAH_HOME: "/data"
+    ports:
+      - "127.0.0.1:7830:7830"
+      - "127.0.0.1:7831:7831"
+    volumes:
+      - aimurahv3-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7830/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  aimurahv3-data:

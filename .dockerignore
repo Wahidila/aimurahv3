@@ -1,0 +1,39 @@
+# Build context should not include anything Python runtime already handles
+# or state that belongs to the host OS.
+.git/
+.gitignore
+.gitattributes
+.venv/
+venv/
+env/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+.env
+.env.*
+!.env.example
+
+# Runtime state directory (mounted as a volume on the VPS)
+.aimurahv3/
+aimurahv3.log*
+request_logs.jsonl
+store.db*
+aimurahv3.pid
+last_failed_payload.json
+
+# Local dev artefacts
+tests/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Editors
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

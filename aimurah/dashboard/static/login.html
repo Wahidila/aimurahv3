@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AIMurahV3 — Sign in</title>
+<link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+<div class="login-page">
+    <div class="login-card">
+        <div class="brand"><div class="logo"></div><h1>AIMurahV3</h1><span>Kiro Pro proxy</span></div>
+        <div id="setup-view" style="display:none">
+            <h2 style="margin-bottom:6px">Create password</h2>
+            <p class="muted" style="margin-top:0">First time here. Pick a dashboard password.</p>
+            <label><span>Password (min 6 chars)</span>
+                <input id="setup-password" type="password" autocomplete="new-password" />
+            </label>
+            <button class="btn primary" id="setup-btn" style="width:100%">Set password</button>
+            <p id="setup-error" class="muted" style="color:var(--danger)"></p>
+        </div>
+        <div id="login-view">
+            <h2 style="margin-bottom:6px">Sign in</h2>
+            <p class="muted" style="margin-top:0">Enter your dashboard password.</p>
+            <label><span>Password</span>
+                <input id="password" type="password" autocomplete="current-password" />
+            </label>
+            <button class="btn primary" id="login-btn" style="width:100%">Sign in</button>
+            <p id="login-error" class="muted" style="color:var(--danger)"></p>
+        </div>
+    </div>
+</div>
+<script>
+async function fetchJson(url, opts={}) {
+    const resp = await fetch(url, Object.assign({headers: {'Content-Type': 'application/json'}}, opts));
+    const text = await resp.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(e){}
+    if (!resp.ok) throw new Error(data.detail || data.error || resp.statusText);
+    return data;
+}
+
+async function init() {
+    const status = await fetchJson('/api/auth/status');
+    if (status.authenticated) { window.location.href = '/'; return; }
+    document.getElementById('setup-view').style.display = status.has_password ? 'none' : 'block';
+    document.getElementById('login-view').style.display = status.has_password ? 'block' : 'none';
+}
+
+document.getElementById('login-btn').addEventListener('click', async () => {
+    const pwd = document.getElementById('password').value;
+    const err = document.getElementById('login-error');
+    err.textContent = '';
+    try {
+        await fetchJson('/api/auth/login', {method: 'POST', body: JSON.stringify({password: pwd})});
+        window.location.href = '/';
+    } catch (e) { err.textContent = e.message; }
+});
+
+document.getElementById('setup-btn').addEventListener('click', async () => {
+    const pwd = document.getElementById('setup-password').value;
+    const err = document.getElementById('setup-error');
+    err.textContent = '';
+    try {
+        await fetchJson('/api/auth/set-password', {method: 'POST', body: JSON.stringify({password: pwd})});
+        await fetchJson('/api/auth/login', {method: 'POST', body: JSON.stringify({password: pwd})});
+        window.location.href = '/';
+    } catch (e) { err.textContent = e.message; }
+});
+
+init();
+</script>
+</body>
+</html>
