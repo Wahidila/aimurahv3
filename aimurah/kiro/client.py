@@ -233,18 +233,26 @@ def build_kiro_request(
             collapsed.append(entry)
     history = collapsed
 
-    # Pop the last user turn as `currentMessage`. Tool-result turns are
-    # valid current messages too — that's how Kiro IDE submits tool output
-    # back to the model. Skipping them caused the model to ignore the
-    # latest tool results and re-issue the same tool call, which is the
-    # source of the client-side "echo berhasil" loop.
+    # Pop the last user turn as `currentMessage`.
+    # IMPORTANT: currentMessage must NOT have toolResults — Kiro upstream
+    # rejects that with "Improperly formed request". Tool-result turns stay
+    # in history; only pop a plain user message (or the last user message
+    # that doesn't carry toolResults).
     current_message: dict[str, Any]
     for idx in range(len(history) - 1, -1, -1):
         if "userInputMessage" in history[idx]:
+            uim = history[idx]["userInputMessage"]
+            ctx = uim.get("userInputMessageContext") or {}
+            if ctx.get("toolResults"):
+                # This is a tool-result turn — cannot be currentMessage.
+                continue
             current_message = history.pop(idx)
             break
     else:
-        current_message = {"userInputMessage": {"content": "", "modelId": model_upstream_id, "origin": "AI_EDITOR"}}
+        # No plain user message found. This happens when the conversation
+        # ends with assistant+toolUses → user+toolResults (agent loop).
+        # Create a minimal "continue" message so upstream has something.
+        current_message = {"userInputMessage": {"content": "continue", "modelId": model_upstream_id, "origin": "AI_EDITOR"}}
 
     cur_uim = current_message["userInputMessage"]
     cur_uim["modelId"] = model_upstream_id
