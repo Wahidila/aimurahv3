@@ -12,7 +12,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..config import load_config
-from ..logs import get_logger
+from ..logs import get_logger, log_request
 from . import OPENCODE_MODELS
 from .slots import SlotManager
 from .upstream import proxy_chat_completion, proxy_chat_completion_stream, normalize_response
@@ -128,9 +128,9 @@ async def chat_completions(
     started = time.time()
     try:
         if is_stream:
-            return await _handle_stream(body, slot, sm)
+            return await _handle_stream(body, slot, sm, started)
         else:
-            return await _handle_non_stream(body, slot, sm)
+            return await _handle_non_stream(body, slot, sm, started)
     except HTTPException:
         sm.release(slot, had_error=True)
         raise
@@ -140,7 +140,7 @@ async def chat_completions(
         raise HTTPException(status_code=502, detail=f"upstream error: {exc}")
 
 
-async def _handle_non_stream(body: dict[str, Any], slot, sm: SlotManager):
+async def _handle_non_stream(body: dict[str, Any], slot, sm: SlotManager, started: float):
     """Proxy non-streaming request."""
     cfg = load_config()
     timeout = float(cfg.get("request_timeout_seconds", 300))
@@ -155,12 +155,25 @@ async def _handle_non_stream(body: dict[str, Any], slot, sm: SlotManager):
 
     had_error = resp.status_code >= 400
     sm.release(slot, had_error=had_error)
+    latency_ms = int((time.time() - started) * 1000)
 
     if resp.status_code != 200:
         try:
             error_data = resp.json()
         except Exception:
             error_data = {"error": resp.text}
+        log_request({
+            "id": f"oc-{int(time.time()*1000)}",
+            "model": model,
+            "provider": "opencode",
+            "upstream": model,
+            "status_code": resp.status_code,
+            "started_at": started,
+            "latency_ms": latency_ms,
+            "slot_id": slot.id,
+            "input_preview": (body.get("messages", [{}])[-1].get("content") or "")[:120],
+            "output_preview": str(error_data)[:120],
+        })
         return JSONResponse(
             status_code=resp.status_code,
             content=error_data,
@@ -169,16 +182,45 @@ async def _handle_non_stream(body: dict[str, Any], slot, sm: SlotManager):
 
     # Normalize response to OpenAI format (handles Claude-format models)
     normalized = normalize_response(resp, model)
+
+    # Extract token usage
+    usage = normalized.get("usage", {})
+    prompt_tokens = usage.get("prompt_tokens", 0)
+    completion_tokens = usage.get("completion_tokens", 0)
+
+    # Extract output preview
+    output_preview = ""
+    choices = normalized.get("choices", [])
+    if choices:
+        msg = choices[0].get("message", {})
+        output_preview = (msg.get("content") or msg.get("reasoning_content") or "")[:120]
+
+    log_request({
+        "id": f"oc-{int(time.time()*1000)}",
+        "model": model,
+        "provider": "opencode",
+        "upstream": model,
+        "status_code": 200,
+        "started_at": started,
+        "latency_ms": latency_ms,
+        "slot_id": slot.id,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "input_preview": (body.get("messages", [{}])[-1].get("content") or "")[:120],
+        "output_preview": output_preview,
+    })
+
     return JSONResponse(
         content=normalized,
         headers={"X-Opencode-Slot": str(slot.id)},
     )
 
 
-async def _handle_stream(body: dict[str, Any], slot, sm: SlotManager):
+async def _handle_stream(body: dict[str, Any], slot, sm: SlotManager, started: float):
     """Proxy streaming request."""
     cfg = load_config()
     timeout = float(cfg.get("request_timeout_seconds", 300))
+    model = body.get("model", "")
 
     async def _stream_generator():
         try:
@@ -190,6 +232,19 @@ async def _handle_stream(body: dict[str, Any], slot, sm: SlotManager):
                 yield chunk
         finally:
             sm.release(slot, had_error=False)
+            latency_ms = int((time.time() - started) * 1000)
+            log_request({
+                "id": f"oc-{int(time.time()*1000)}",
+                "model": model,
+                "provider": "opencode",
+                "upstream": model,
+                "status_code": 200,
+                "started_at": started,
+                "latency_ms": latency_ms,
+                "slot_id": slot.id,
+                "input_preview": (body.get("messages", [{}])[-1].get("content") or "")[:120],
+                "output_preview": "(streamed)",
+            })
 
     return StreamingResponse(
         _stream_generator(),
