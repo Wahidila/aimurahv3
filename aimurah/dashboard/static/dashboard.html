@@ -26,6 +26,7 @@
             <button data-view="overview" class="active">Overview</button>
             <button data-view="accounts">Accounts</button>
             <button data-view="models">Models</button>
+            <button data-view="opencode">OpenCode Proxy</button>
             <button data-view="usage">Usage</button>
             <button data-view="settings">Settings</button>
         </nav>
@@ -125,6 +126,43 @@
                         <tbody id="request-logs-table"></tbody>
                     </table>
                 </div>
+            </div>
+        </section>
+
+        <!-- OpenCode Proxy -->
+        <section id="view-opencode" style="display:none">
+            <h2>OpenCode Proxy Rotating</h2>
+            <div class="card">
+                <h3>Status</h3>
+                <div class="grid" id="oc-stats"></div>
+                <p class="muted" style="margin-top:10px">Upstream: <code class="mono">https://opencode.ai/zen/v1</code> | Auth: <code class="mono">Bearer public</code></p>
+            </div>
+            <div class="card">
+                <h3>Endpoints</h3>
+                <table>
+                    <tr><td class="mono">POST /opencode/v1/chat/completions</td><td class="muted">OpenAI-compatible (rotating slots)</td></tr>
+                    <tr><td class="mono">GET /opencode/v1/models</td><td class="muted">List available models</td></tr>
+                </table>
+                <p class="muted" style="margin-top:10px">Models: <code>deepseek-v4-flash-free</code>, <code>minimax-m2.5-free</code></p>
+            </div>
+            <div class="card">
+                <h3>Configuration</h3>
+                <label><span>Slots (concurrent connections)</span>
+                    <input id="oc-slots" type="number" min="1" max="50" />
+                </label>
+                <label><span>Cooldown per slot (ms)</span>
+                    <input id="oc-cooldown" type="number" min="100" max="10000" />
+                </label>
+                <button class="btn primary" id="oc-save-btn">Apply</button>
+                <button class="btn" id="oc-test-btn" style="margin-left:8px">Test connection</button>
+                <p class="muted" id="oc-test-result" style="margin-top:8px"></p>
+            </div>
+            <div class="card">
+                <h3>Slot details</h3>
+                <table>
+                    <thead><tr><th>Slot</th><th>In-flight</th><th>Total</th><th>Errors</th><th>Cooldown left</th></tr></thead>
+                    <tbody id="oc-slots-table"></tbody>
+                </table>
             </div>
         </section>
 

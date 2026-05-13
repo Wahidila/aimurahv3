@@ -30,7 +30,7 @@ function fmtNum(n) {
 }
 
 // ---------- View switching ----------
-const views = ['overview','accounts','models','usage','settings'];
+const views = ['overview','accounts','models','opencode','usage','settings'];
 document.querySelectorAll('.sidebar button').forEach(btn => {
     btn.addEventListener('click', () => {
         const target = btn.dataset.view;
@@ -46,6 +46,7 @@ async function loadView(name) {
     if (name === 'overview') return loadOverview();
     if (name === 'accounts') return loadAccounts();
     if (name === 'models') return loadModels();
+    if (name === 'opencode') return loadOpenCode();
     if (name === 'usage') return loadUsage();
     if (name === 'settings') return loadSettings();
 }
@@ -442,6 +443,67 @@ document.getElementById('change-password-btn').addEventListener('click', async (
 document.getElementById('logout-btn').addEventListener('click', async () => {
     await api('/api/auth/logout', {method: 'POST'});
     window.location.href = '/login';
+});
+
+// ---------- OpenCode Proxy ----------
+async function loadOpenCode() {
+    try {
+        const data = await api('/api/opencode/stats');
+        const grid = document.getElementById('oc-stats');
+        if (!data.enabled) {
+            grid.innerHTML = '<p class="muted">OpenCode proxy is disabled. Enable in Settings.</p>';
+            return;
+        }
+        grid.innerHTML = `
+            <div><strong>${data.slots}</strong><br><span class="muted">Slots</span></div>
+            <div><strong>${data.cooldown_ms}ms</strong><br><span class="muted">Cooldown</span></div>
+            <div><strong>${fmtNum(data.total_requests)}</strong><br><span class="muted">Total requests</span></div>
+            <div><strong>${fmtNum(data.total_errors)}</strong><br><span class="muted">Errors</span></div>
+            <div><strong>${data.in_flight}</strong><br><span class="muted">In-flight</span></div>
+        `;
+        // Config inputs
+        document.getElementById('oc-slots').value = data.slots;
+        document.getElementById('oc-cooldown').value = data.cooldown_ms;
+        // Slots table
+        const tbody = document.getElementById('oc-slots-table');
+        tbody.innerHTML = (data.slots_detail || []).map(s => `
+            <tr>
+                <td>${s.id}</td>
+                <td>${s.in_flight}</td>
+                <td>${fmtNum(s.total)}</td>
+                <td>${s.errors}</td>
+                <td>${s.cooldown_left_ms > 0 ? s.cooldown_left_ms + 'ms' : '—'}</td>
+            </tr>
+        `).join('');
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+document.getElementById('oc-save-btn').addEventListener('click', async () => {
+    const slots = parseInt(document.getElementById('oc-slots').value);
+    const cooldown = parseInt(document.getElementById('oc-cooldown').value);
+    try {
+        await api('/api/opencode/reconfigure', {
+            method: 'POST',
+            body: JSON.stringify({ slots, cooldown_ms: cooldown }),
+        });
+        toast('OpenCode config updated');
+        loadOpenCode();
+    } catch (e) { toast(e.message, 'error'); }
+});
+
+document.getElementById('oc-test-btn').addEventListener('click', async () => {
+    const el = document.getElementById('oc-test-result');
+    el.textContent = 'Testing...';
+    try {
+        const data = await api('/api/opencode/test', { method: 'POST' });
+        if (data.ok) {
+            el.innerHTML = `<span style="color:#4caf50">✓ Connected</span> — ${data.latency_ms}ms latency`;
+        } else {
+            el.innerHTML = `<span style="color:#f44336">✗ Failed</span> — ${data.status_code || data.error}`;
+        }
+    } catch (e) {
+        el.innerHTML = `<span style="color:#f44336">✗ Error</span> — ${e.message}`;
+    }
 });
 
 // ---------- Boot ----------

@@ -1000,3 +1000,11 @@ async def health():
 
 
 app.include_router(api)
+
+# --- OpenCode Proxy Rotating ---
+from ..config import load_config as _oc_load_config
+
+_oc_cfg = _oc_load_config()
+if _oc_cfg.get("opencode_enabled", True):
+    from ..opencode.router import router as opencode_router
+    app.include_router(opencode_router)

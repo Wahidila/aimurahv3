@@ -500,9 +500,20 @@ async def api_update_settings(request: Request):
         "auto_refresh_minutes", "usage_poll_minutes", "request_timeout_seconds",
         "oauth_engine", "oauth_headless", "proxy_url", "log_level",
         "token_saver_enabled", "sticky_round_robin_limit",
+        "opencode_enabled", "opencode_slots", "opencode_cooldown_ms",
     }
     updates = {k: v for k, v in body.items() if k in allowed}
     cfg = update_config(**updates)
+    # Live-reconfigure OpenCode slots if changed
+    if "opencode_slots" in updates or "opencode_cooldown_ms" in updates:
+        try:
+            from ..opencode.router import reconfigure_slots
+            reconfigure_slots(
+                slots=int(updates.get("opencode_slots") or cfg.get("opencode_slots", 8)),
+                cooldown_ms=int(updates.get("opencode_cooldown_ms") or cfg.get("opencode_cooldown_ms", 1500)),
+            )
+        except Exception:
+            pass
     return {k: v for k, v in cfg.items() if k not in ("dashboard_password_hash",)}
 
 
@@ -541,6 +552,82 @@ async def api_request_logs(request: Request):
             except _json.JSONDecodeError:
                 continue
     return {"logs": logs[:100]}
+
+
+# ------------------- OpenCode Proxy Rotating -------------------
+
+@app.get("/api/opencode/stats")
+async def api_opencode_stats(request: Request):
+    """Get OpenCode proxy rotating stats."""
+    require_auth(request)
+    cfg = load_config()
+    if not cfg.get("opencode_enabled", True):
+        return {"enabled": False}
+    try:
+        from ..opencode.router import get_stats
+        return get_stats()
+    except Exception as exc:
+        return {"enabled": False, "error": str(exc)}
+
+
+@app.post("/api/opencode/reconfigure")
+async def api_opencode_reconfigure(request: Request):
+    """Live-reconfigure OpenCode slot manager."""
+    require_auth(request)
+    body = await request.json()
+    slots = body.get("slots")
+    cooldown_ms = body.get("cooldown_ms")
+    if slots is not None:
+        slots = int(slots)
+        if slots < 1 or slots > 50:
+            raise HTTPException(status_code=400, detail="slots must be 1-50")
+    if cooldown_ms is not None:
+        cooldown_ms = int(cooldown_ms)
+        if cooldown_ms < 100 or cooldown_ms > 10000:
+            raise HTTPException(status_code=400, detail="cooldown_ms must be 100-10000")
+    # Persist to config
+    updates = {}
+    if slots is not None:
+        updates["opencode_slots"] = slots
+    if cooldown_ms is not None:
+        updates["opencode_cooldown_ms"] = cooldown_ms
+    if updates:
+        update_config(**updates)
+    # Apply live
+    from ..opencode.router import reconfigure_slots
+    result = reconfigure_slots(slots=slots, cooldown_ms=cooldown_ms)
+    return {"ok": True, **result}
+
+
+@app.post("/api/opencode/test")
+async def api_opencode_test(request: Request):
+    """Quick connectivity test to OpenCode upstream."""
+    require_auth(request)
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                "https://opencode.ai/zen/v1/chat/completions",
+                json={
+                    "model": "deepseek-v4-flash-free",
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 5,
+                    "stream": False,
+                },
+                headers={
+                    "Authorization": "Bearer public",
+                    "x-opencode-client": "desktop",
+                    "Content-Type": "application/json",
+                },
+            )
+            return {
+                "ok": resp.status_code == 200,
+                "status_code": resp.status_code,
+                "latency_ms": int(resp.elapsed.total_seconds() * 1000),
+                "body_preview": resp.text[:200],
+            }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 # ------------------- Static UI -------------------

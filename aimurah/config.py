@@ -47,6 +47,10 @@ DEFAULTS: dict[str, Any] = {
     # On by default; set to False (or `AIMURAH_PREFIX_CONTEXT=0`) only if
     # your client UI surfaces the prefix and you accept the tradeoff.
     "prefix_current_time_context": True,
+    # --- OpenCode Proxy Rotating ---
+    "opencode_enabled": True,
+    "opencode_slots": 8,
+    "opencode_cooldown_ms": 1500,
 }
 
 
