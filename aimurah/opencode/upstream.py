@@ -61,6 +61,85 @@ def _is_claude_format(model: str) -> bool:
     return model in CLAUDE_FORMAT_MODELS
 
 
+def _transform_to_claude_request(body: dict[str, Any]) -> dict[str, Any]:
+    """Transform OpenAI-format request to Anthropic/Claude messages format."""
+    messages = body.get("messages", [])
+    system_text = ""
+    claude_messages = []
+
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "system":
+            system_text += content + "\n"
+        else:
+            claude_messages.append({"role": role, "content": content})
+
+    result: dict[str, Any] = {
+        "model": body.get("model", ""),
+        "messages": claude_messages,
+        "max_tokens": body.get("max_tokens", 4096),
+    }
+    if system_text.strip():
+        result["system"] = system_text.strip()
+    if body.get("temperature") is not None:
+        result["temperature"] = body["temperature"]
+    if body.get("stream"):
+        result["stream"] = True
+    return result
+
+
+def _transform_claude_response_to_openai(data: dict[str, Any], model: str) -> dict[str, Any]:
+    """Transform Anthropic/Claude response to OpenAI chat completion format."""
+    # Extract text from content blocks
+    content_blocks = data.get("content", [])
+    text_parts = []
+    reasoning_parts = []
+    for block in content_blocks:
+        if isinstance(block, dict):
+            if block.get("type") == "text":
+                text_parts.append(block.get("text", ""))
+            elif block.get("type") == "thinking":
+                reasoning_parts.append(block.get("thinking", ""))
+
+    message: dict[str, Any] = {
+        "role": "assistant",
+        "content": "".join(text_parts) or None,
+    }
+    if reasoning_parts:
+        message["reasoning_content"] = "".join(reasoning_parts)
+
+    # Map stop_reason to finish_reason
+    stop_reason = data.get("stop_reason", "")
+    finish_reason_map = {
+        "end_turn": "stop",
+        "stop_sequence": "stop",
+        "max_tokens": "length",
+    }
+    finish_reason = finish_reason_map.get(stop_reason, "stop")
+
+    usage = data.get("usage", {})
+    return {
+        "id": data.get("id", f"chatcmpl-{int(time.time())}"),
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": message,
+                "logprobs": None,
+                "finish_reason": finish_reason,
+            }
+        ],
+        "usage": {
+            "prompt_tokens": usage.get("input_tokens", 0),
+            "completion_tokens": usage.get("output_tokens", 0),
+            "total_tokens": (usage.get("input_tokens", 0) + usage.get("output_tokens", 0)),
+        },
+    }
+
+
 async def proxy_chat_completion(
     body: dict[str, Any],
     slot_fingerprint: str,
@@ -78,9 +157,19 @@ async def proxy_chat_completion(
         else _build_headers(slot_fingerprint, stream=stream)
     )
 
+    request_body = _transform_to_claude_request(body) if is_claude else body
+
     async with httpx.AsyncClient(timeout=timeout, http2=True) as client:
-        resp = await client.post(url, json=body, headers=headers)
+        resp = await client.post(url, json=request_body, headers=headers)
         return resp
+
+
+def normalize_response(resp: httpx.Response, model: str) -> dict[str, Any]:
+    """Normalize upstream response to OpenAI format regardless of source."""
+    data = resp.json()
+    if _is_claude_format(model):
+        return _transform_claude_response_to_openai(data, model)
+    return data
 
 
 async def proxy_chat_completion_stream(
@@ -99,10 +188,13 @@ async def proxy_chat_completion_stream(
         else _build_headers(slot_fingerprint, stream=True)
     )
 
+    request_body = _transform_to_claude_request(body) if is_claude else body
+    if is_claude:
+        request_body["stream"] = True
+
     async with httpx.AsyncClient(timeout=timeout, http2=True) as client:
-        async with client.stream("POST", url, json=body, headers=headers) as resp:
+        async with client.stream("POST", url, json=request_body, headers=headers) as resp:
             if resp.status_code != 200:
-                # Read error body and yield it
                 error_body = await resp.aread()
                 yield error_body
                 return

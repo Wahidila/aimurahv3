@@ -15,7 +15,7 @@ from ..config import load_config
 from ..logs import get_logger
 from . import OPENCODE_MODELS
 from .slots import SlotManager
-from .upstream import proxy_chat_completion, proxy_chat_completion_stream
+from .upstream import proxy_chat_completion, proxy_chat_completion_stream, normalize_response
 
 logger = get_logger()
 
@@ -144,6 +144,7 @@ async def _handle_non_stream(body: dict[str, Any], slot, sm: SlotManager):
     """Proxy non-streaming request."""
     cfg = load_config()
     timeout = float(cfg.get("request_timeout_seconds", 300))
+    model = body.get("model", "")
 
     resp = await proxy_chat_completion(
         body=body,
@@ -156,14 +157,20 @@ async def _handle_non_stream(body: dict[str, Any], slot, sm: SlotManager):
     sm.release(slot, had_error=had_error)
 
     if resp.status_code != 200:
+        try:
+            error_data = resp.json()
+        except Exception:
+            error_data = {"error": resp.text}
         return JSONResponse(
             status_code=resp.status_code,
-            content=resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {"error": resp.text},
+            content=error_data,
             headers={"X-Opencode-Slot": str(slot.id)},
         )
 
+    # Normalize response to OpenAI format (handles Claude-format models)
+    normalized = normalize_response(resp, model)
     return JSONResponse(
-        content=resp.json(),
+        content=normalized,
         headers={"X-Opencode-Slot": str(slot.id)},
     )
 
