@@ -100,7 +100,10 @@ def _transform_claude_response_to_openai(data: dict[str, Any], model: str) -> di
             if block.get("type") == "text":
                 text_parts.append(block.get("text", ""))
             elif block.get("type") == "thinking":
-                reasoning_parts.append(block.get("thinking", ""))
+                # MiniMax uses "thinking" key, Anthropic uses "thinking" too
+                thinking_text = block.get("thinking") or block.get("text") or ""
+                if thinking_text:
+                    reasoning_parts.append(thinking_text)
 
     message: dict[str, Any] = {
         "role": "assistant",
